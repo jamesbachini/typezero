@@ -1,5 +1,7 @@
 contracts/leaderboard/target/
+contracts/leaderboard/test_snapshots/
 frontend/node_modules
 risc0/typing_proof/host/target/
 risc0/typing_proof/methods/guest/target/
 risc0/typing_proof/target/
+backend/node_modules/
