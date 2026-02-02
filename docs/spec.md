@@ -143,6 +143,7 @@ Inside guest:
    * `minutes = duration_ms / 60000`
    * `gross_wpm = (typed_chars / 5) / minutes`
    * Use integer math; represent WPM in fixed point (e.g., `wpm_x100`)
+   * Derived integer form: `wpm_x100 = (typed_chars * 1_200_000) / duration_ms`
 
 **Recommended score**
 
@@ -153,17 +154,10 @@ Inside guest:
 
 ## Anti-teleport constraints (small but meaningful)
 
-Enforce in guest:
+Enforce in guest (v1):
 
 * `dt_ms >= MIN_DT` (e.g. 10ms)
-* `dt_ms <= MAX_DT` (e.g. 5000ms; prevents absurd pauses? optional)
 * `total_duration_ms >= MIN_DURATION` (e.g. prompt_len * 40ms)
-* max burst:
-
-  * in any rolling 200ms window, <= 8 keys (approx; can implement with a simple running sum using dt)
-* max sustained rate:
-
-  * `typed_chars / total_duration_ms <= MAX_RATE` (integer comparison)
 
 Keep these thresholds generous to avoid false rejects.
 
@@ -182,7 +176,7 @@ Keep these thresholds generous to avoid false rejects.
 
 ### Public outputs to commit in guest journal
 
-Commit a struct (fixed layout):
+Commit a struct (fixed layout; little-endian integers):
 
 * `challenge_id: u32`
 * `player: [u8; 32]` (Stellar account raw public key bytes or canonical encoding used in your system)
@@ -191,7 +185,6 @@ Commit a struct (fixed layout):
 * `wpm_x100: u32`
 * `accuracy_bps: u32` (0–10000)
 * `duration_ms: u32`
-* `replay_hash: [u8; 32]` (optional but recommended for auditability)
 
 **Important:** Keep the committed struct stable. The contract will parse these exact bytes (or you can pass them as separate arguments if your verifier requires).
 
