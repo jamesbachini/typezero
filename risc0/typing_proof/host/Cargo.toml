@@ -1,0 +1,6 @@
+[package]
+name = "typing-proof-host"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

@@ -1,0 +1,4 @@
+contracts/leaderboard/target/
+frontend/node_modules
+risc0/typing_proof/host/target/
+risc0/typing_proof/methods/guest/target/
