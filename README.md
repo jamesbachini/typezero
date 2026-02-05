@@ -51,16 +51,16 @@ This project demonstrates the integration of **RiscZero zkVM** with **Stellar's 
    - Leaderboard display
    - Demo wallet integration
 
-2. **RiscZero Guest Program** (`/risc0/typing_proof/methods/guest`)
+2. **Backend Proving Service** (`/backend`)
+   - Receives replay data
+   - Runs RiscZero host to generate proofs
+   - Returns proof artifacts (seal, journal hash, image ID)
+
+3. **RiscZero Guest Program** (`/risc0/typing_proof/methods/guest`)
    - Validates replay events
    - Enforces anti-cheat constraints
    - Computes WPM and accuracy
    - Commits public outputs to journal
-
-3. **Backend Proving Service** (`/backend`)
-   - Receives replay data
-   - Runs RiscZero host to generate proofs
-   - Returns proof artifacts (seal, journal hash, image ID)
 
 4. **Soroban Contracts** (`/contracts`)
    - **Leaderboard Contract**: Manages challenges, scores, and rankings
