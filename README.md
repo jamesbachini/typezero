@@ -24,25 +24,23 @@ This project demonstrates the integration of **RiscZero zkVM** with **Stellar's 
 │  (Frontend) │
 └──────┬──────┘
        │ Records replay
-       ├──────────────────┐
-       │                  │
-       v                  v
-┌──────────────┐   ┌─────────────────┐
-│   Backend    │   │  Stellar Chain  │
-│ Proving Svc  │   │    (Testnet)    │
-└──────┬───────┘   └────────┬────────┘
-       │                    │
-       │ Generates proof    │
-       │                    │
-       v                    v
+       v 
+┌──────────────┐
+│   Backend    │
+│ Proving Svc  │
+└──────┬───────┘
+       │
+       │ Generates proof
+       │
+       v 
 ┌──────────────┐   ┌─────────────────┐
 │ RiscZero VM  │   │ Soroban Smart   │
-│    (Guest)   │   │   Contracts     │
+│    (Guest)   │-->│    Contract     │
 └──────────────┘   └─────────────────┘
-       │                    │
-       │                    ├─ Verifier Contract
-       └────────────────────┼─ Leaderboard Contract
-                            └─ Challenge Registry
+                            │
+                            ├─ Groth16 Verifier
+                            ├─ Leaderboard
+                            └─ Gamehub integration
 ```
 
 ### Components
