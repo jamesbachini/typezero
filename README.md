@@ -416,6 +416,16 @@ Contributions welcome! This is a demo project showcasing RiscZero + Stellar inte
 3. Maintain determinism (same replay → same score)
 4. Document any changes to public output schema
 
+## Links
+https://developers.stellar.org/
+https://risczero.com/
+https://jamesbachini.com
+https://www.youtube.com/c/JamesBachini
+https://bachini.substack.com
+https://x.com/james_bachini
+https://www.linkedin.com/in/james-bachini/
+https://github.com/jamesbachini
+
 ## 📄 License
 
 MIT License - see LICENSE file
