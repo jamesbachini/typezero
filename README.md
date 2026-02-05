@@ -30,7 +30,8 @@ This project demonstrates the integration of **RiscZero zkVM** with **Stellar's 
 │ Proving Svc  │
 └──────┬───────┘
        │
-       │ Generates proof
+       │ Generates proof which is delivered
+       │ to Stellar RPC node via frontend
        │
        v 
 ┌──────────────┐   ┌─────────────────┐
