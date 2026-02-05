@@ -1,0 +1,8 @@
+{
+  "CHALLENGE_ID": 1,
+  "CHALLENGE_PROMPT": "the quick brown fox jumps over the lazy dog",
+  "FRIENDBOT_URL": "https://friendbot.stellar.org",
+  "PORT": 3000,
+  "TYPING_PROOF_HOST_BIN": "../risc0/typing_proof/target/release/typing-proof-host",
+  "VERIFIER_SELECTOR_HEX": "73c457ba"
+}

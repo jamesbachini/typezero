@@ -209,7 +209,7 @@ You do not need signature verification for this binding if:
 
 The verifier interface you will call from your leaderboard contract:
 
-* `verify(journal, image_id, seal)` (exact arg types depend on Nethermind contract; the agent must match it precisely)
+* `verify(seal, image_id, journal)` where `journal` is the SHA-256 digest of the journal bytes (exact arg types depend on Nethermind contract; the agent must match it precisely)
 * The verify method returns `()` on success, reverts/panics on failure.
 
 ## 6.2 Leaderboard contract (you write)
@@ -311,7 +311,7 @@ Use `stellar-access` or a minimal admin check:
 
 3. Verify proof:
 
-   * call verifier `verify(journal_hash, image_id, seal_with_selector)`
+   * call verifier `verify(seal_with_selector, image_id, journal_hash)`
    * ensure `image_id == stored IMAGE_ID` (prevents submitting proofs for a different program)
 
 4. Ensure journal_hash corresponds to public outputs

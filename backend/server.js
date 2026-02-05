@@ -10,6 +10,7 @@ const DEFAULT_CHALLENGE_PROMPT =
   "the quick brown fox jumps over the lazy dog";
 const DEFAULT_MAX_PROMPT_CHARS = 256;
 const DEFAULT_MAX_BODY_BYTES = 1_000_000;
+const DEFAULT_MAX_SEAL_BYTES = 8192;
 
 function corsHeaders() {
   return {
@@ -99,6 +100,41 @@ function parsePlayerPubkey(value) {
   }
 }
 
+function normalizeHex(value, label, expectedBytes) {
+  if (typeof value !== "string") {
+    throw new Error(`${label} must be a hex string`);
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    throw new Error(`${label} must not be empty`);
+  }
+  const hex = trimmed.startsWith("0x") ? trimmed.slice(2) : trimmed;
+  if (hex.length % 2 !== 0) {
+    throw new Error(`${label} has invalid length`);
+  }
+  if (!/^[0-9a-fA-F]+$/.test(hex)) {
+    throw new Error(`${label} must be hex`);
+  }
+  if (Number.isInteger(expectedBytes) && hex.length !== expectedBytes * 2) {
+    throw new Error(`${label} must be ${expectedBytes} bytes`);
+  }
+  return hex.toLowerCase();
+}
+
+function parseOptionalSelector(value) {
+  if (value === undefined || value === null) {
+    return "";
+  }
+  if (typeof value !== "string") {
+    throw new Error("VERIFIER_SELECTOR_HEX must be a hex string");
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  return normalizeHex(trimmed, "VERIFIER_SELECTOR_HEX", 4);
+}
+
 function createServer(options = {}) {
   const challengeId = Number(
     options.challengeId ?? process.env.CHALLENGE_ID ?? DEFAULT_CHALLENGE_ID
@@ -111,6 +147,14 @@ function createServer(options = {}) {
     options.maxPromptChars ?? DEFAULT_MAX_PROMPT_CHARS;
   const maxEvents = options.maxEvents ?? DEFAULT_MAX_EVENTS;
   const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
+  const maxSealBytes =
+    options.maxSealBytes ??
+    (process.env.MAX_SEAL_BYTES
+      ? Number(process.env.MAX_SEAL_BYTES)
+      : DEFAULT_MAX_SEAL_BYTES);
+  const verifierSelectorHex = parseOptionalSelector(
+    options.verifierSelectorHex ?? process.env.VERIFIER_SELECTOR_HEX
+  );
   const friendbotUrl =
     options.friendbotUrl || process.env.FRIENDBOT_URL || DEFAULT_FRIENDBOT_URL;
   const friendbotFund = options.friendbotFund || fundWithFriendbot;
@@ -205,6 +249,25 @@ function createServer(options = {}) {
       return;
     }
 
+    let sealHex;
+    try {
+      sealHex = normalizeHex(proveResult.seal_hex, "prover seal");
+    } catch (err) {
+      sendError(res, 500, err.message || "prover returned invalid seal");
+      return;
+    }
+    if (Number.isFinite(maxSealBytes) && maxSealBytes > 0) {
+      const sealBytes = sealHex.length / 2;
+      if (sealBytes > maxSealBytes) {
+        sendError(
+          res,
+          500,
+          `seal too large (${sealBytes} bytes). Enable Groth16 proving and rebuild typing-proof-host.`
+        );
+        return;
+      }
+    }
+
     if (
       proveResult.journal_prompt_hash_hex &&
       proveResult.journal_prompt_hash_hex.toLowerCase() !==
@@ -228,6 +291,10 @@ function createServer(options = {}) {
       }
     }
 
+    if (verifierSelectorHex) {
+      sealHex = verifierSelectorHex + sealHex;
+    }
+
     sendJson(res, 200, {
       score: proveResult.score,
       wpm_x100: proveResult.wpm_x100,
@@ -235,7 +302,7 @@ function createServer(options = {}) {
       duration_ms: proveResult.duration_ms,
       image_id_hex: proveResult.image_id_hex,
       journal_sha256_hex: proveResult.journal_sha256_hex,
-      seal_hex: proveResult.seal_hex,
+      seal_hex: sealHex,
     });
   }
 

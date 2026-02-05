@@ -1,4 +1,4 @@
-.PHONY: test fmt lint dev dev-backend dev-frontend
+.PHONY: test fmt lint dev dev-backend dev-frontend dev-contracts
 
 test:
 	cd contracts/leaderboard && cargo test
@@ -17,8 +17,11 @@ lint:
 	cd risc0/typing_proof/methods/guest && cargo fmt -- --check
 	cd frontend && npm run lint
 
-dev:
+dev: dev-contracts
 	$(MAKE) -j2 dev-backend dev-frontend
+
+dev-contracts:
+	node scripts/deploy-testnet.mjs
 
 dev-backend:
 	cd backend && npm run dev

@@ -109,7 +109,14 @@ async function proveWithHost(params) {
     eventsBytes.toString("hex"),
   ];
 
-  const stdout = await runProcess(bin, args, { env: process.env });
+  const env = { ...process.env };
+  if (!env.TYPING_PROOF_RECEIPT_KIND) {
+    env.TYPING_PROOF_RECEIPT_KIND = "groth16";
+  }
+  if (!env.RISC0_PROVER) {
+    env.RISC0_PROVER = "local";
+  }
+  const stdout = await runProcess(bin, args, { env });
   return parseProverOutput(stdout);
 }
 

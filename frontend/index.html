@@ -30,7 +30,7 @@
           </div>
           <div>
             <span class="chip">Proofs</span>
-            <p class="hero-value">Risc0 (stubbed verifier)</p>
+            <p class="hero-value">Risc0 (Groth16 verifier)</p>
           </div>
         </div>
       </header>
@@ -84,16 +84,14 @@
             <div class="prompt" id="challenge-prompt">Loading…</div>
             <div class="typing">
               <div class="typing-label">Your input</div>
-              <div id="typed-output" class="typed-output"></div>
-              <input
+              <textarea
                 id="typing-input"
                 class="typing-input"
-                type="text"
                 autocomplete="off"
                 autocapitalize="none"
                 spellcheck="false"
                 disabled
-              />
+              ></textarea>
             </div>
             <div class="stats">
               <div>
@@ -114,6 +112,9 @@
               </div>
             </div>
             <div id="preview-warnings" class="status" data-tone="warn"></div>
+            <button id="typing-submit" class="button wide" disabled>
+              Submit or Hit Enter
+            </button>
           </div>
         </section>
 
@@ -137,7 +138,7 @@
           </div>
         </section>
 
-        <section class="panel" data-animate="4">
+        <section class="panel panel-wide" data-animate="4">
           <div class="panel-header">
             <h2>Leaderboard</h2>
             <span class="label">Top 20</span>
@@ -164,7 +165,7 @@
           </div>
         </section>
 
-        <section class="panel" data-animate="5">
+        <section class="panel panel-wide" data-animate="5">
           <div class="panel-header">
             <h2>Config</h2>
             <span class="label">Overrides</span>
@@ -181,6 +182,7 @@
     </div>
 
     <script src="/node_modules/@stellar/stellar-sdk/dist/stellar-sdk-no-eventsource.min.js"></script>
+    <script src="./config.local.js"></script>
     <script type="module" src="./app.mjs"></script>
   </body>
 </html>

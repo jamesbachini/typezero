@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use risc0_zkvm::{default_prover, ExecutorEnv, InnerReceipt, Receipt};
+use risc0_zkvm::{default_prover, ExecutorEnv, InnerReceipt, ProverOpts, Receipt};
 use sha2::{Digest, Sha256};
 use typing_proof_methods::{TYPING_PROOF_GUEST_ELF, TYPING_PROOF_GUEST_ID};
 
@@ -53,10 +53,16 @@ pub fn prove(
         .build()?;
 
     let prover = default_prover();
-    let prove_info = prover.prove(env, TYPING_PROOF_GUEST_ELF)?;
+    let (opts, require_groth16) = prover_opts_from_env();
+    let prove_info = prover.prove_with_opts(env, TYPING_PROOF_GUEST_ELF, &opts)?;
     prove_info.receipt.verify(TYPING_PROOF_GUEST_ID)?;
 
     let receipt = prove_info.receipt;
+    if require_groth16 && !matches!(&receipt.inner, InnerReceipt::Groth16(_)) {
+        return Err(anyhow!(
+            "expected Groth16 receipt; ensure Groth16 proving is enabled (Docker required)"
+        ));
+    }
     let journal_bytes_vec = receipt.journal.bytes.clone();
     let journal_bytes: [u8; JOURNAL_LEN] = journal_bytes_vec
         .as_slice()
@@ -72,6 +78,20 @@ pub fn prove(
         image_id: digest_to_bytes(TYPING_PROOF_GUEST_ID.into()),
         journal_sha256,
     })
+}
+
+fn prover_opts_from_env() -> (ProverOpts, bool) {
+    let kind = std::env::var("TYPING_PROOF_RECEIPT_KIND")
+        .ok()
+        .unwrap_or_else(|| "groth16".to_string())
+        .to_lowercase();
+
+    match kind.as_str() {
+        "succinct" => (ProverOpts::succinct(), false),
+        "composite" => (ProverOpts::composite(), false),
+        "groth16" => (ProverOpts::groth16(), true),
+        _ => (ProverOpts::groth16(), true),
+    }
 }
 
 pub fn normalize_prompt(input: &str) -> Result<Vec<u8>> {
@@ -231,6 +251,15 @@ pub fn receipt_seal_bytes(receipt: &Receipt) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Once;
+
+    static TEST_ENV: Once = Once::new();
+
+    fn init_test_env() {
+        TEST_ENV.call_once(|| {
+            std::env::set_var("TYPING_PROOF_RECEIPT_KIND", "succinct");
+        });
+    }
 
     fn fixture_perfect() -> Result<(u32, [u8; 32], String, Vec<u8>)> {
         let challenge_id = 1u32;
@@ -269,6 +298,7 @@ mod tests {
 
     #[test]
     fn perfect_run_accuracy_is_full() -> Result<()> {
+        init_test_env();
         let (challenge_id, player_pubkey, prompt, events_bytes) = fixture_perfect()?;
         let result = prove(challenge_id, player_pubkey, &prompt, &events_bytes)?;
         assert_eq!(result.journal.accuracy_bps, 10000);
@@ -277,6 +307,7 @@ mod tests {
 
     #[test]
     fn mistakes_reduce_accuracy() -> Result<()> {
+        init_test_env();
         let (challenge_id, player_pubkey, prompt, events_bytes) = fixture_mistake()?;
         let result = prove(challenge_id, player_pubkey, &prompt, &events_bytes)?;
         assert!(result.journal.accuracy_bps < 10000);
@@ -285,6 +316,7 @@ mod tests {
 
     #[test]
     fn invalid_dt_fails() -> Result<()> {
+        init_test_env();
         let (challenge_id, player_pubkey, prompt, events_bytes) = fixture_invalid_dt()?;
         let result = prove(challenge_id, player_pubkey, &prompt, &events_bytes);
         assert!(result.is_err());
@@ -293,6 +325,7 @@ mod tests {
 
     #[test]
     fn journal_hash_deterministic() -> Result<()> {
+        init_test_env();
         let (challenge_id, player_pubkey, prompt, events_bytes) = fixture_perfect()?;
         let first = prove(challenge_id, player_pubkey, &prompt, &events_bytes)?;
         let second = prove(challenge_id, player_pubkey, &prompt, &events_bytes)?;

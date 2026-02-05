@@ -10,11 +10,11 @@ This project demonstrates the integration of **RiscZero zkVM** with **Stellar's 
 
 - **Daily Challenges**: New typing prompts every day
 - **Zero-Knowledge Proofs**: Scores are cryptographically proven using RiscZero
-- **On-Chain Leaderboards**: Immutable rankings stored on Stellar testnet
+- **On-Chain Leaderboards**: Immutable rankings stored on Stellar (Futurenet)
 - **No Backend Trust**: The backend can't cheat—proofs enforce correctness
 - **Deterministic Scoring**: Same replay always produces the same score
 
-> **Note:** Proof verification is stubbed on testnet; swap to the real verifier on futurenet when bn254 is available.
+> **Note:** Proof verification calls the Nethermind Groth16 verifier contract. Deploy on Futurenet and set `VERIFIER_SELECTOR_HEX` (4 bytes, hex) so the backend prefixes the seal before submission.
 
 ## 🏗️ Architecture
 
@@ -29,7 +29,7 @@ This project demonstrates the integration of **RiscZero zkVM** with **Stellar's 
        v                  v
 ┌──────────────┐   ┌─────────────────┐
 │   Backend    │   │  Stellar Chain  │
-│ Proving Svc  │   │    (Testnet)   │
+│ Proving Svc  │   │   (Futurenet)  │
 └──────┬───────┘   └────────┬────────┘
        │                    │
        │ Generates proof    │
@@ -114,7 +114,7 @@ The ZK guest program enforces:
 - Node.js 18+
 - Rust 1.75+
 - RiscZero toolchain
-- Stellar CLI (soroban-cli)
+- Stellar CLI (`stellar`)
 - Docker (for backend)
 ```
 
@@ -151,7 +151,13 @@ npm install  # or cargo build if Rust-based
 make dev
 ```
 
-This starts the backend on `http://localhost:3000` and the frontend on `http://localhost:5173`.
+This builds and deploys the leaderboard contract to testnet, writes
+`frontend/config.local.js`, then starts the backend on `http://localhost:3000`
+and the frontend on `http://localhost:5173`.
+
+`make dev` expects the `stellar` CLI and a configured identity (default:
+`typezero-dev`). Set `STELLAR_IDENTITY` or `STELLAR_ADMIN` if you use a
+different setup.
 
 ### Local Development (manual)
 
@@ -162,9 +168,11 @@ npm run dev  # starts on localhost:3000
 
 # Terminal 2: Deploy contracts to Testnet
 cd contracts/leaderboard
-soroban contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/leaderboard.wasm \
-  --network testnet
+stellar contract build
+stellar contract deploy \
+  --wasm target/wasm32v1-none/release/leaderboard.wasm \
+  --network testnet \
+  --source-account typezero-dev
 
 # Terminal 3: Start frontend
 cd frontend
@@ -193,23 +201,25 @@ localStorage.setItem(
 );
 ```
 
-Backend config uses `.env`:
+Backend config uses `backend/config.json` (env vars still override at runtime):
 
-**Backend** (`backend/.env`):
-```env
-PORT=3000
-CHALLENGE_ID=1
-CHALLENGE_PROMPT=the quick brown fox jumps over the lazy dog
-FRIENDBOT_URL=https://friendbot.stellar.org
-# Optional: override prover binary path
-TYPING_PROOF_HOST_BIN=../risc0/typing_proof/target/release/typing-proof-host
+**Backend** (`backend/config.json`):
+```json
+{
+  "PORT": 3000,
+  "CHALLENGE_ID": 1,
+  "CHALLENGE_PROMPT": "the quick brown fox jumps over the lazy dog",
+  "FRIENDBOT_URL": "https://friendbot.stellar.org",
+  "TYPING_PROOF_HOST_BIN": "../risc0/typing_proof/target/release/typing-proof-host",
+  "VERIFIER_SELECTOR_HEX": "00000000"
+}
 ```
 
 ## 📝 Tech Stack
 
 ### Blockchain
 - **Stellar Soroban SDK**: `25.0.2`
-- **Network**: Testnet (proof verification stubbed)
+- **Network**: Futurenet (Groth16 verification)
 - **stellar-contract-utils**: `0.6.0`
 - **@stellar/stellar-sdk**: `14.5.0`
 
@@ -233,7 +243,7 @@ TYPING_PROOF_HOST_BIN=../risc0/typing_proof/target/release/typing-proof-host
 
 **The backend cannot cheat because:**
 - Proofs are generated using fixed RiscZero image ID
-- On testnet, proof verification is stubbed (use futurenet for real verification)
+- Proof verification is enforced by the verifier contract
 - Only the player's address can submit their own proof
 - Replay determinism ensures same inputs → same outputs
 
@@ -242,7 +252,7 @@ TYPING_PROOF_HOST_BIN=../risc0/typing_proof/target/release/typing-proof-host
 - Be slow or rate-limit
 
 **What the backend CANNOT do:**
-- Submit fake scores when real verification is enabled (not on testnet)
+- Submit fake scores when verification is enabled
 - Submit on behalf of another player (address mismatch)
 - Modify replay results (breaks proof)
 
@@ -399,45 +409,49 @@ node scripts/e2e-smoke.mjs
 
 ## 📦 Deployment
 
-### Testnet Deployment Steps
+### Futurenet Deployment Steps
 
-> Proof verification is stubbed on testnet; use any valid `verifier_id` address and
-> keep `image_id` aligned with the prover output. Swap to the real verifier on
-> futurenet when bn254 is available.
+> Proof verification calls the Nethermind Groth16 verifier. Deploy it first,
+> query its 4-byte selector, and set `VERIFIER_SELECTOR_HEX` in the backend
+> so the seal is prefixed correctly.
 
 1. **Deploy Leaderboard Contract**
 ```bash
 cd contracts/leaderboard
-cargo build --target wasm32-unknown-unknown --release
+stellar contract build
 
-soroban contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/leaderboard.wasm \
-  --network testnet
+stellar contract deploy \
+  --wasm target/wasm32v1-none/release/leaderboard.wasm \
+  --network futurenet \
+  --source-account typezero-dev
 ```
 
 2. **Initialize Leaderboard**
 ```bash
-soroban contract invoke \
+stellar contract invoke \
   --id C... \
-  --network testnet \
+  --network futurenet \
+  --source-account typezero-dev \
   -- init \
   --verifier_id G... \
-  --image_id 0x... \
+  --image_id <64_hex_bytes> \
   --admin G...
 ```
 
 3. **Set First Challenge**
 ```bash
-soroban contract invoke \
+stellar contract invoke \
   --id C... \
-  --network testnet \
+  --network futurenet \
+  --source-account typezero-dev \
   -- set_challenge \
   --challenge_id 1 \
-  --prompt_hash 0x...
+  --prompt_hash <64_hex_bytes>
 
-soroban contract invoke \
+stellar contract invoke \
   --id C... \
-  --network testnet \
+  --network futurenet \
+  --source-account typezero-dev \
   -- set_current_challenge \
   --challenge_id 1
 ```

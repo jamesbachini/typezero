@@ -4,7 +4,7 @@ use core::cmp::Ordering;
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Bytes, BytesN,
-    Env, String, Vec,
+    Env, IntoVal, InvokeError, String, Symbol, Val, Vec,
 };
 
 const TOP_N: u32 = 20;
@@ -103,14 +103,24 @@ fn validate_name(env: &Env, name: &String) {
     }
 }
 
-fn verify_proof_stub(
-    _env: &Env,
-    _verifier_id: &Address,
-    _journal_hash: &BytesN<32>,
-    _image_id: &BytesN<32>,
-    _seal: &Bytes,
-) -> bool {
-    true
+fn verify_proof(
+    env: &Env,
+    verifier_id: &Address,
+    journal_hash: &BytesN<32>,
+    image_id: &BytesN<32>,
+    seal: &Bytes,
+) {
+    let mut args: Vec<Val> = Vec::new(env);
+    args.push_back(seal.into_val(env));
+    args.push_back(image_id.into_val(env));
+    args.push_back(journal_hash.into_val(env));
+
+    let result =
+        env.try_invoke_contract::<Val, InvokeError>(verifier_id, &Symbol::new(env, "verify"), args);
+    match result {
+        Ok(Ok(_)) => {}
+        Ok(Err(_)) | Err(_) => panic_with_error!(env, Error::ProofVerificationFailed),
+    }
 }
 
 fn cmp_rows(a: &LeaderboardRow, b: &LeaderboardRow) -> Ordering {
@@ -287,9 +297,7 @@ impl Leaderboard {
         }
 
         let verifier_id = read_verifier_id(&env);
-        if !verify_proof_stub(&env, &verifier_id, &journal_hash, &image_id, &seal) {
-            panic_with_error!(&env, Error::ProofVerificationFailed);
-        }
+        verify_proof(&env, &verifier_id, &journal_hash, &image_id, &seal);
 
         let best_key = DataKey::Best(challenge_id, player.clone());
         let best_existing: Option<ScoreEntry> = storage.get(&best_key);
@@ -332,12 +340,41 @@ mod tests {
     use soroban_sdk::{Bytes, IntoVal};
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
+    #[contract]
+    struct VerifierMock;
+
+    #[contractimpl]
+    impl VerifierMock {
+        pub fn verify(_env: Env, _seal: Bytes, _image_id: BytesN<32>, _journal: BytesN<32>) {}
+    }
+
+    #[contract]
+    struct VerifierReject;
+
+    #[contractimpl]
+    impl VerifierReject {
+        pub fn verify(_env: Env, _seal: Bytes, _image_id: BytesN<32>, _journal: BytesN<32>) {
+            panic!("invalid proof");
+        }
+    }
+
     fn setup() -> (Env, Address, Address, Address, BytesN<32>) {
         let env = Env::default();
         let contract_id = env.register(Leaderboard, ());
         let client = LeaderboardClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
-        let verifier = Address::generate(&env);
+        let verifier = env.register(VerifierMock, ());
+        let image_id = BytesN::from_array(&env, &[7u8; 32]);
+        client.init(&admin, &verifier, &image_id);
+        (env, contract_id, admin, verifier, image_id)
+    }
+
+    fn setup_with_reject_verifier() -> (Env, Address, Address, Address, BytesN<32>) {
+        let env = Env::default();
+        let contract_id = env.register(Leaderboard, ());
+        let client = LeaderboardClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let verifier = env.register(VerifierReject, ());
         let image_id = BytesN::from_array(&env, &[7u8; 32]);
         client.init(&admin, &verifier, &image_id);
         (env, contract_id, admin, verifier, image_id)
@@ -845,5 +882,39 @@ mod tests {
             assert!(tie_positions.iter().position(|p| p == &tie_player_b)
                 < tie_positions.iter().position(|p| p == &tie_player_a));
         }
+    }
+
+    #[test]
+    fn proof_verification_failure_rejects() {
+        let (env, contract_id, admin, _verifier, image_id) = setup_with_reject_verifier();
+        let client = LeaderboardClient::new(&env, &contract_id);
+        let prompt_hash = BytesN::from_array(&env, &[8u8; 32]);
+        set_challenge(&env, &contract_id, &client, &admin, 1, &prompt_hash);
+        set_current_challenge(&env, &contract_id, &client, &admin, 1);
+
+        let player = Address::generate(&env);
+        let name = String::from_str(&env, "fail");
+        let journal_hash = BytesN::from_array(&env, &[9u8; 32]);
+        let seal = Bytes::from_slice(&env, &[1, 2, 3]);
+
+        assert!(catch_unwind(AssertUnwindSafe(|| {
+            submit_with_auth(
+                &env,
+                &contract_id,
+                &client,
+                1,
+                &player,
+                &name,
+                &prompt_hash,
+                100,
+                12000,
+                9500,
+                60000,
+                &journal_hash,
+                &image_id,
+                &seal,
+            );
+        }))
+        .is_err());
     }
 }

@@ -24,3 +24,4 @@ soroban-sdk = { version = "25.0.2", features = ["testutils"] }
 opt-level = "z"
 codegen-units = 1
 lto = true
+overflow-checks = true

@@ -143,6 +143,10 @@ body::before {
   animation: rise 0.6s ease both;
 }
 
+.panel-wide {
+  grid-column: 1 / -1;
+}
+
 .panel[data-animate="1"] {
   animation-delay: 0.05s;
 }
@@ -237,23 +241,14 @@ body::before {
   color: var(--muted);
 }
 
-.typed-output {
-  min-height: 60px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px dashed rgba(31, 26, 23, 0.2);
-  background: rgba(255, 255, 255, 0.6);
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.95rem;
-  white-space: pre-wrap;
-}
-
 .typing-input {
   padding: 12px;
   border-radius: 10px;
   border: 1px solid var(--border);
   font-family: "JetBrains Mono", monospace;
   font-size: 1rem;
+  width: 100%;
+  resize: none;
 }
 
 .text-input {
@@ -347,6 +342,7 @@ body::before {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.9rem;
+  table-layout: fixed;
 }
 
 .leaderboard th,
@@ -354,6 +350,10 @@ body::before {
   text-align: left;
   padding: 8px;
   border-bottom: 1px solid rgba(31, 26, 23, 0.08);
+}
+
+.leaderboard td {
+  overflow-wrap: anywhere;
 }
 
 .leaderboard th {

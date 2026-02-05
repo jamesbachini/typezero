@@ -23,7 +23,7 @@ const el = {
   challengeReload: document.getElementById("challenge-reload"),
   challengeStart: document.getElementById("challenge-start"),
   typingInput: document.getElementById("typing-input"),
-  typedOutput: document.getElementById("typed-output"),
+  typingSubmit: document.getElementById("typing-submit"),
   previewWpm: document.getElementById("preview-wpm"),
   previewAccuracy: document.getElementById("preview-accuracy"),
   previewScore: document.getElementById("preview-score"),
@@ -88,8 +88,10 @@ function bindEvents() {
   el.challengeReload.addEventListener("click", () => loadChallenge());
   el.challengeStart.addEventListener("click", () => startChallenge());
   el.typingInput.addEventListener("keydown", handleKeyDown);
+  el.typingSubmit.addEventListener("click", () => finishFromButton());
   el.nameInput.addEventListener("input", () => validateNameInput());
   el.submitButton.addEventListener("click", () => void submitScore());
+  window.addEventListener("resize", () => syncTypingInputHeight());
 }
 
 function loadConfig() {
@@ -229,6 +231,7 @@ async function loadChallenge() {
     el.challengeHash.textContent = data.prompt_hash_hex || "—";
     el.challengeStart.disabled = false;
     resetChallengeState();
+    requestAnimationFrame(() => syncTypingInputHeight());
     await refreshLeaderboard();
   } catch (err) {
     setStatus(el.leaderboardStatus, err.message || "Challenge load failed.", "error");
@@ -244,7 +247,7 @@ function resetChallengeState() {
   state.clampedDt = false;
   el.typingInput.value = "";
   el.typingInput.disabled = true;
-  el.typedOutput.textContent = "";
+  el.typingSubmit.disabled = true;
   el.previewWpm.textContent = "—";
   el.previewAccuracy.textContent = "—";
   el.previewScore.textContent = "—";
@@ -252,6 +255,14 @@ function resetChallengeState() {
   el.previewWarnings.textContent = "";
   el.submitStatus.textContent = "";
   el.submitButton.disabled = true;
+}
+
+function syncTypingInputHeight() {
+  const promptHeight = el.challengePrompt ? el.challengePrompt.offsetHeight : 0;
+  if (!promptHeight || !el.typingInput) {
+    return;
+  }
+  el.typingInput.style.height = `${promptHeight}px`;
 }
 
 function startChallenge() {
@@ -263,6 +274,7 @@ function startChallenge() {
   state.timing.start();
   el.typingInput.disabled = false;
   el.typingInput.focus();
+  el.typingSubmit.disabled = false;
   el.challengeStart.disabled = true;
   setStatus(el.leaderboardStatus, "Typing challenge running…", "info");
 }
@@ -271,12 +283,28 @@ function handleKeyDown(event) {
   if (!state.running) {
     return;
   }
+  event.preventDefault();
   const code = mapKeyToReplayCode(event);
   if (code === null) {
     return;
   }
-  event.preventDefault();
 
+  recordEvent(code);
+
+  if (code === KEY.ENTER) {
+    finishChallenge();
+  }
+}
+
+function finishFromButton() {
+  if (!state.running) {
+    return;
+  }
+  recordEvent(KEY.ENTER);
+  finishChallenge();
+}
+
+function recordEvent(code) {
   let dt = state.timing.record();
   if (dt < MIN_DT_MS) {
     dt = MIN_DT_MS;
@@ -295,11 +323,8 @@ function handleKeyDown(event) {
   } else if (code === KEY.BACKSPACE) {
     state.typed = state.typed.slice(0, -1);
   }
-  el.typedOutput.textContent = state.typed;
-
-  if (code === KEY.ENTER) {
-    finishChallenge();
-  }
+  el.typingInput.value = state.typed;
+  el.typingInput.setSelectionRange(state.typed.length, state.typed.length);
 }
 
 function mapKeyToReplayCode(event) {
@@ -322,8 +347,12 @@ function mapKeyToReplayCode(event) {
 }
 
 function finishChallenge() {
+  if (!state.running) {
+    return;
+  }
   state.running = false;
   el.typingInput.disabled = true;
+  el.typingSubmit.disabled = true;
   el.challengeStart.disabled = false;
 
   const stats = computeStats(state.challenge.prompt, state.events);

@@ -45,7 +45,7 @@ test("POST /prove returns proof artifacts for fixture", async () => {
     };
   };
 
-  const server = createServer({ prover });
+  const server = createServer({ prover, verifierSelectorHex: "a1b2c3d4" });
   await new Promise((resolve) => server.listen(0, resolve));
   const { port } = server.address();
 
@@ -71,6 +71,6 @@ test("POST /prove returns proof artifacts for fixture", async () => {
     duration_ms: 1200,
     image_id_hex: "aa",
     journal_sha256_hex: "bb",
-    seal_hex: "cc",
+    seal_hex: "a1b2c3d4cc",
   });
 });
