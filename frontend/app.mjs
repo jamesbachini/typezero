@@ -45,6 +45,7 @@ const storageKeys = {
 const state = {
   wallet: null,
   challenge: null,
+  session: null,
   events: [],
   typed: "",
   stats: null,
@@ -86,7 +87,7 @@ function bindEvents() {
   el.walletCreate.addEventListener("click", () => void createWallet());
   el.walletClear.addEventListener("click", () => clearWallet());
   el.challengeReload.addEventListener("click", () => loadChallenge());
-  el.challengeStart.addEventListener("click", () => startChallenge());
+  el.challengeStart.addEventListener("click", () => void startChallenge());
   el.typingInput.addEventListener("keydown", handleKeyDown);
   el.typingSubmit.addEventListener("click", () => finishFromButton());
   el.nameInput.addEventListener("input", () => validateNameInput());
@@ -102,7 +103,10 @@ function loadConfig() {
     networkPassphrase: window.StellarSdk
       ? window.StellarSdk.Networks.TESTNET
       : "Test SDF Network ; September 2015",
+    friendbotUrl: "https://friendbot.stellar.org",
     leaderboardContractId: "",
+    gameHubContractId: "",
+    gameWinScore: null,
   };
 
   let stored = {};
@@ -121,7 +125,10 @@ function renderConfig() {
     `backend: ${config.backendUrl}`,
     `rpc: ${config.rpcUrl}`,
     `horizon: ${config.horizonUrl}`,
+    `friendbot: ${config.friendbotUrl}`,
     `contract: ${config.leaderboardContractId || "(missing)"}`,
+    `game hub: ${config.gameHubContractId || "(backend)"}`,
+    `win score: ${Number.isFinite(config.gameWinScore) ? config.gameWinScore : "(backend)"}`,
   ];
   el.configInfo.textContent = rows.join("\n");
   if (!config.leaderboardContractId) {
@@ -164,6 +171,7 @@ function saveWallet(wallet) {
 
 function clearWallet() {
   state.wallet = null;
+  state.session = null;
   localStorage.removeItem(storageKeys.wallet);
   updateWalletUI();
   setStatus(el.walletStatus, "Wallet cleared.", "info");
@@ -177,24 +185,44 @@ function updateWalletUI() {
   el.walletSecret.textContent = wallet ? wallet.secretKey : "—";
   el.walletBalance.textContent = wallet ? "(loading…)" : "—";
   el.walletClear.disabled = !wallet;
-  el.challengeStart.disabled = !state.challenge;
-  el.submitButton.disabled = !wallet || !state.stats;
+  el.challengeStart.disabled =
+    !state.challenge || !wallet || state.running || Boolean(state.session);
+  el.submitButton.disabled = !wallet || !state.stats || !state.session;
+}
+
+async function fundWithFriendbot(publicKey) {
+  if (typeof publicKey !== "string" || publicKey.length === 0) {
+    throw new Error("publicKey required for friendbot");
+  }
+  const url = new URL(config.friendbotUrl);
+  url.searchParams.set("addr", publicKey);
+  const response = await fetch(url.toString(), { method: "GET" });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(
+      `friendbot request failed (${response.status}): ${text || "unknown error"}`
+    );
+  }
+  try {
+    await response.json();
+  } catch (_err) {
+    // ignore non-json payloads
+  }
 }
 
 async function createWallet() {
-  setStatus(el.walletStatus, "Creating wallet via backend…", "info");
+  if (!window.StellarSdk) {
+    setStatus(el.walletStatus, "Stellar SDK not loaded.", "error");
+    return;
+  }
+  setStatus(el.walletStatus, "Generating wallet in browser…", "info");
   try {
-    const response = await fetch(`${config.backendUrl}/wallet`, {
-      method: "POST",
-    });
-    if (!response.ok) {
-      throw new Error(`wallet request failed (${response.status})`);
-    }
-    const data = await response.json();
-    if (!data.publicKey || !data.secretKey) {
-      throw new Error("wallet response missing keys");
-    }
-    saveWallet({ publicKey: data.publicKey, secretKey: data.secretKey });
+    const keypair = window.StellarSdk.Keypair.random();
+    const publicKey = keypair.publicKey();
+    const secretKey = keypair.secret();
+    saveWallet({ publicKey, secretKey });
+    setStatus(el.walletStatus, "Funding wallet via friendbot…", "info");
+    await fundWithFriendbot(publicKey);
     setStatus(el.walletStatus, "Wallet funded on testnet.", "success");
     await refreshBalance();
     await refreshLeaderboard();
@@ -216,6 +244,20 @@ async function refreshBalance() {
   }
 }
 
+function formatPromptHash(hash) {
+  if (typeof hash !== "string") {
+    return "—";
+  }
+  const trimmed = hash.trim();
+  if (!trimmed) {
+    return "—";
+  }
+  if (trimmed.length <= 6) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, 3)}...${trimmed.slice(-3)}`;
+}
+
 async function loadChallenge() {
   setStatus(el.walletStatus, "", "info");
   setStatus(el.leaderboardStatus, "Loading challenge…", "info");
@@ -228,8 +270,8 @@ async function loadChallenge() {
     state.challenge = data;
     el.challengePrompt.textContent = data.prompt;
     el.challengeId.textContent = String(data.challenge_id ?? "—");
-    el.challengeHash.textContent = data.prompt_hash_hex || "—";
-    el.challengeStart.disabled = false;
+    el.challengeHash.textContent = formatPromptHash(data.prompt_hash_hex);
+    updateWalletUI();
     resetChallengeState();
     requestAnimationFrame(() => syncTypingInputHeight());
     await refreshLeaderboard();
@@ -265,18 +307,69 @@ function syncTypingInputHeight() {
   el.typingInput.style.height = `${promptHeight}px`;
 }
 
-function startChallenge() {
+async function startChallenge() {
   if (!state.challenge) {
     return;
   }
-  resetChallengeState();
-  state.running = true;
-  state.timing.start();
-  el.typingInput.disabled = false;
-  el.typingInput.focus();
-  el.typingSubmit.disabled = false;
+  if (!state.wallet) {
+    setStatus(el.leaderboardStatus, "Create a wallet before starting.", "warn");
+    return;
+  }
+  if (state.session) {
+    setStatus(el.leaderboardStatus, "Finish the current session first.", "warn");
+    return;
+  }
+
   el.challengeStart.disabled = true;
-  setStatus(el.leaderboardStatus, "Typing challenge running…", "info");
+  setStatus(el.leaderboardStatus, "Starting game session…", "info");
+
+  try {
+    const session = await startGameSession();
+    state.session = session;
+    resetChallengeState();
+    state.running = true;
+    state.timing.start();
+    el.typingInput.disabled = false;
+    el.typingInput.focus();
+    el.typingSubmit.disabled = false;
+    const target = Number.isFinite(session.winScore)
+      ? ` Beat score > ${session.winScore} to win.`
+      : "";
+    setStatus(
+      el.leaderboardStatus,
+      `Session ${session.sessionId} started.${target}`,
+      "info"
+    );
+  } catch (err) {
+    setStatus(el.leaderboardStatus, err.message || "Failed to start session.", "error");
+    updateWalletUI();
+  }
+}
+
+async function startGameSession() {
+  const response = await fetch(`${config.backendUrl}/game/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      player_pubkey: state.wallet?.publicKey,
+    }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `start_game failed (${response.status})`);
+  }
+  const data = await response.json();
+  const sessionId = Number(data.session_id);
+  if (!Number.isInteger(sessionId)) {
+    throw new Error("start_game response missing session_id");
+  }
+  return {
+    sessionId,
+    winScore: Number(data.win_score),
+    gameId: data.game_id,
+    player1: data.player1_public_key,
+    player2: data.player2_public_key,
+  };
 }
 
 function handleKeyDown(event) {
@@ -353,7 +446,7 @@ function finishChallenge() {
   state.running = false;
   el.typingInput.disabled = true;
   el.typingSubmit.disabled = true;
-  el.challengeStart.disabled = false;
+  updateWalletUI();
 
   const stats = computeStats(state.challenge.prompt, state.events);
   state.stats = stats;
@@ -399,7 +492,7 @@ function validateNameInput() {
     setStatus(el.submitStatus, error, "warn");
   } else {
     el.nameInput.dataset.invalid = "false";
-    if (state.stats && state.wallet) {
+    if (state.stats && state.wallet && state.session) {
       el.submitButton.disabled = false;
     }
   }
@@ -421,6 +514,10 @@ function validateName(name) {
 async function submitScore() {
   if (!state.wallet || !state.challenge || !state.stats) {
     setStatus(el.submitStatus, "Play the challenge before submitting.", "warn");
+    return;
+  }
+  if (!state.session) {
+    setStatus(el.submitStatus, "Start a game session before submitting.", "warn");
     return;
   }
   if (state.stats.durationMs < state.stats.minDurationMs) {
@@ -485,12 +582,22 @@ async function submitScore() {
 
     setStatus(el.submitStatus, "Score submitted. Refreshing leaderboard…", "success");
     await refreshLeaderboard();
+
+    setStatus(el.submitStatus, "Finalizing game session…", "info");
+    const endResult = await endGameSession(normalizedProof.score);
+    if (endResult) {
+      const outcome = endResult.player2_won ? "You won!" : "You lost.";
+      const target = Number.isFinite(endResult.win_score)
+        ? ` Target was > ${endResult.win_score}.`
+        : "";
+      setStatus(el.submitStatus, `${outcome}${target}`, "success");
+      state.session = null;
+      updateWalletUI();
+    }
   } catch (err) {
     setStatus(el.submitStatus, err.message || "Submission failed.", "error");
   } finally {
-    if (state.wallet) {
-      el.submitButton.disabled = false;
-    }
+    validateNameInput();
   }
 }
 
@@ -541,6 +648,31 @@ async function submitSorobanTx(name, proof) {
   } else if (sendResult.status !== "SUCCESS") {
     throw new Error(`Transaction failed: ${sendResult.status}`);
   }
+}
+
+async function endGameSession(score) {
+  if (!state.session) {
+    return null;
+  }
+  const response = await fetch(`${config.backendUrl}/game/end`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      session_id: state.session.sessionId,
+      player_pubkey: state.wallet?.publicKey,
+      score,
+    }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `end_game failed (${response.status})`);
+  }
+  const data = await response.json();
+  return {
+    player1_won: Boolean(data.player1_won),
+    player2_won: Boolean(data.player2_won),
+    win_score: Number(data.win_score),
+  };
 }
 
 async function refreshLeaderboard() {

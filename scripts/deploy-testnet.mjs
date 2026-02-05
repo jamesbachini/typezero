@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import promptModule from "../backend/prompt.js";
 
@@ -9,14 +10,19 @@ const { promptHashHex } = promptModule;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
+const require = createRequire(import.meta.url);
 
 const DEFAULT_CHALLENGE_ID = 1;
 const DEFAULT_CHALLENGE_PROMPT =
   "the quick brown fox jumps over the lazy dog";
 const DEFAULT_BACKEND_URL = "http://localhost:3000";
+const DEFAULT_FRIENDBOT_URL = "https://friendbot.stellar.org";
 const DEFAULT_RPC_URL = "https://soroban-testnet.stellar.org";
 const DEFAULT_HORIZON_URL = "https://horizon-testnet.stellar.org";
 const DEFAULT_NETWORK_PASSPHRASE = "Test SDF Network ; September 2015";
+const DEFAULT_GAME_HUB_CONTRACT_ID =
+  "CB4VZAT2U3UC6XFK3N23SKRF2NDCMP3QHJYMCHHFMZO7MRQO6DQ2EMYG";
+const DEFAULT_GAME_WIN_SCORE = 7000;
 const DEFAULT_VERIFIER_REPO =
   "https://github.com/NethermindEth/stellar-risc0-verifier";
 const DEFAULT_VERIFIER_COMMIT = "11b5b2d59143ff9153dfeb62e63fdfcecfaf0016";
@@ -87,6 +93,83 @@ function upsertConfigFile(filePath, updates) {
 
 function ensureDir(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
+}
+
+function loadStellarSdk() {
+  try {
+    return require("@stellar/stellar-sdk");
+  } catch (_err) {
+    const fallback = path.join(
+      repoRoot,
+      "backend",
+      "node_modules",
+      "@stellar",
+      "stellar-sdk"
+    );
+    try {
+      return require(fallback);
+    } catch (err) {
+      throw new Error(
+        `Unable to load @stellar/stellar-sdk. Run \"npm install\" in backend. (${err.message})`
+      );
+    }
+  }
+}
+
+async function fundWithFriendbot(publicKey, friendbotUrl) {
+  const url = new URL(friendbotUrl);
+  url.searchParams.set("addr", publicKey);
+  const response = await fetch(url.toString(), { method: "GET" });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(
+      `friendbot request failed (${response.status}): ${text || "unknown error"}`
+    );
+  }
+  try {
+    await response.json();
+  } catch (_err) {
+    // ignore non-json payloads
+  }
+}
+
+async function ensureHouseKeys(configPath, backendConfig, friendbotUrl) {
+  const StellarSdk = loadStellarSdk();
+  const envSecret = process.env.HOUSE_SECRET_KEY;
+  const envPublic = process.env.HOUSE_PUBLIC_KEY;
+  let secret = envSecret || backendConfig.HOUSE_SECRET_KEY || "";
+  let publicKey = envPublic || backendConfig.HOUSE_PUBLIC_KEY || "";
+  let created = false;
+
+  if (!secret || !String(secret).trim()) {
+    const keypair = StellarSdk.Keypair.random();
+    secret = keypair.secret();
+    publicKey = keypair.publicKey();
+    created = true;
+  } else {
+    const keypair = StellarSdk.Keypair.fromSecret(String(secret).trim());
+    const derived = keypair.publicKey();
+    if (publicKey && String(publicKey).trim() && publicKey !== derived) {
+      throw new Error("HOUSE_PUBLIC_KEY does not match HOUSE_SECRET_KEY");
+    }
+    publicKey = derived;
+  }
+
+  if (created) {
+    try {
+      await fundWithFriendbot(publicKey, friendbotUrl);
+    } catch (err) {
+      console.warn(
+        `Warning: unable to fund house account on testnet.\n${err.message || err}`
+      );
+    }
+  }
+
+  upsertConfigFile(configPath, {
+    HOUSE_PUBLIC_KEY: publicKey,
+    HOUSE_SECRET_KEY: secret,
+  });
+  return { publicKey, secret };
 }
 
 function findVerifierRepoDir(cacheRoot, commit) {
@@ -314,9 +397,8 @@ async function main() {
   ensureBinary("curl");
   ensureBinary("tar");
 
-  const backendConfig = loadConfigFile(
-    path.join(repoRoot, "backend", "config.json")
-  );
+  const backendConfigPath = path.join(repoRoot, "backend", "config.json");
+  const backendConfig = loadConfigFile(backendConfigPath);
   const challengeId = Number(
     process.env.CHALLENGE_ID ||
       backendConfig.CHALLENGE_ID ||
@@ -329,6 +411,31 @@ async function main() {
   if (!Number.isInteger(challengeId) || challengeId < 0) {
     throw new Error("CHALLENGE_ID must be a non-negative integer.");
   }
+
+  const friendbotUrl =
+    process.env.FRIENDBOT_URL ||
+    backendConfig.FRIENDBOT_URL ||
+    DEFAULT_FRIENDBOT_URL;
+  const gameHubContractId =
+    process.env.GAME_HUB_CONTRACT_ID ||
+    backendConfig.GAME_HUB_CONTRACT_ID ||
+    DEFAULT_GAME_HUB_CONTRACT_ID;
+  const gameWinScore = Number(
+    process.env.GAME_WIN_SCORE ||
+      backendConfig.GAME_WIN_SCORE ||
+      DEFAULT_GAME_WIN_SCORE
+  );
+  if (!Number.isFinite(gameWinScore) || !Number.isInteger(gameWinScore)) {
+    throw new Error("GAME_WIN_SCORE must be an integer.");
+  }
+
+  upsertConfigFile(backendConfigPath, {
+    FRIENDBOT_URL: friendbotUrl,
+    GAME_HUB_CONTRACT_ID: gameHubContractId,
+    GAME_WIN_SCORE: gameWinScore,
+  });
+
+  await ensureHouseKeys(backendConfigPath, backendConfig, friendbotUrl);
 
   const identity = resolveIdentity();
   ensureIdentity(identity);
@@ -400,6 +507,10 @@ async function main() {
   ]);
   const contractId = parseContractId(deployOutput);
 
+  upsertConfigFile(backendConfigPath, {
+    GAME_ID: contractId,
+  });
+
   const promptHashHexValue = promptHashHex(challengePrompt);
 
   run("stellar", [
@@ -422,7 +533,7 @@ async function main() {
   ]);
 
   if (selectorHex) {
-    upsertConfigFile(path.join(repoRoot, "backend", "config.json"), {
+    upsertConfigFile(backendConfigPath, {
       VERIFIER_SELECTOR_HEX: selectorHex,
     });
   }
@@ -465,7 +576,10 @@ async function main() {
     rpcUrl: process.env.RPC_URL || DEFAULT_RPC_URL,
     horizonUrl: process.env.HORIZON_URL || DEFAULT_HORIZON_URL,
     networkPassphrase: process.env.NETWORK_PASSPHRASE || DEFAULT_NETWORK_PASSPHRASE,
+    friendbotUrl: friendbotUrl,
     leaderboardContractId: contractId,
+    gameHubContractId: gameHubContractId,
+    gameWinScore: gameWinScore,
   };
   const configBody = `window.TYPEZERO_CONFIG = Object.assign(window.TYPEZERO_CONFIG || {}, ${JSON.stringify(
     configPayload,
