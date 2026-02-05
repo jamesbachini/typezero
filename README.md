@@ -10,11 +10,11 @@ This project demonstrates the integration of **RiscZero zkVM** with **Stellar's 
 
 - **Daily Challenges**: New typing prompts every day
 - **Zero-Knowledge Proofs**: Scores are cryptographically proven using RiscZero
-- **On-Chain Leaderboards**: Immutable rankings stored on Stellar (Futurenet)
+- **On-Chain Leaderboards**: Immutable rankings stored on Stellar (Testnet)
 - **No Backend Trust**: The backend can't cheat—proofs enforce correctness
 - **Deterministic Scoring**: Same replay always produces the same score
 
-> **Note:** Proof verification calls the Nethermind Groth16 verifier contract. Deploy on Futurenet and set `VERIFIER_SELECTOR_HEX` (4 bytes, hex) so the backend prefixes the seal before submission.
+> **Note:** Proof verification calls the Nethermind Groth16 verifier contract. Deploy on Testnet and set `VERIFIER_SELECTOR_HEX` (4 bytes, hex) so the backend prefixes the seal before submission.
 
 ## 🏗️ Architecture
 
@@ -29,7 +29,7 @@ This project demonstrates the integration of **RiscZero zkVM** with **Stellar's 
        v                  v
 ┌──────────────┐   ┌─────────────────┐
 │   Backend    │   │  Stellar Chain  │
-│ Proving Svc  │   │   (Futurenet)  │
+│ Proving Svc  │   │    (Testnet)    │
 └──────┬───────┘   └────────┬────────┘
        │                    │
        │ Generates proof    │
@@ -122,62 +122,12 @@ The ZK guest program enforces:
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/zk-typing-challenge.git
-cd zk-typing-challenge
-
-# Install frontend dependencies
-cd frontend
-npm install
-
-# Build contracts
-cd ../contracts/leaderboard
-cargo build --target wasm32-unknown-unknown --release
-
-# Build RiscZero guest
-cd ../../risc0/typing_proof
-cargo build --release
-
-# Build RiscZero host binary (used by backend prover)
-cargo build --release -p typing-proof-host
-
-# Setup backend
-cd ../../backend
-npm install  # or cargo build if Rust-based
-```
-
-### One-Command Local Dev
-
-```bash
+git clone https://github.com/jamesbachini/typezero/typezero.git
+cd typezero
 make dev
 ```
 
-This builds and deploys the leaderboard contract to testnet, writes
-`frontend/config.local.js`, then starts the backend on `http://localhost:3000`
-and the frontend on `http://localhost:5173`.
-
-`make dev` expects the `stellar` CLI and a configured identity (default:
-`typezero-dev`). Set `STELLAR_IDENTITY` or `STELLAR_ADMIN` if you use a
-different setup.
-
-### Local Development (manual)
-
-```bash
-# Terminal 1: Start backend
-cd backend
-npm run dev  # starts on localhost:3000
-
-# Terminal 2: Deploy contracts to Testnet
-cd contracts/leaderboard
-stellar contract build
-stellar contract deploy \
-  --wasm target/wasm32v1-none/release/leaderboard.wasm \
-  --network testnet \
-  --source-account typezero-dev
-
-# Terminal 3: Start frontend
-cd frontend
-npm run dev  # starts on localhost:5173
-```
+Starts frontend server on http://localhost:5173
 
 ### Backend (Prover) Notes
 
@@ -219,7 +169,7 @@ Backend config uses `backend/config.json` (env vars still override at runtime):
 
 ### Blockchain
 - **Stellar Soroban SDK**: `25.0.2`
-- **Network**: Futurenet (Groth16 verification)
+- **Network**: Testnet (Groth16 verification)
 - **stellar-contract-utils**: `0.6.0`
 - **@stellar/stellar-sdk**: `14.5.0`
 
@@ -409,7 +359,7 @@ node scripts/e2e-smoke.mjs
 
 ## 📦 Deployment
 
-### Futurenet Deployment Steps
+### Testnet Deployment Steps
 
 > Proof verification calls the Nethermind Groth16 verifier. Deploy it first,
 > query its 4-byte selector, and set `VERIFIER_SELECTOR_HEX` in the backend
@@ -422,7 +372,7 @@ stellar contract build
 
 stellar contract deploy \
   --wasm target/wasm32v1-none/release/leaderboard.wasm \
-  --network futurenet \
+  --network Testnet \
   --source-account typezero-dev
 ```
 
@@ -430,7 +380,7 @@ stellar contract deploy \
 ```bash
 stellar contract invoke \
   --id C... \
-  --network futurenet \
+  --network Testnet \
   --source-account typezero-dev \
   -- init \
   --verifier_id G... \
@@ -442,7 +392,7 @@ stellar contract invoke \
 ```bash
 stellar contract invoke \
   --id C... \
-  --network futurenet \
+  --network Testnet \
   --source-account typezero-dev \
   -- set_challenge \
   --challenge_id 1 \
@@ -450,7 +400,7 @@ stellar contract invoke \
 
 stellar contract invoke \
   --id C... \
-  --network futurenet \
+  --network Testnet \
   --source-account typezero-dev \
   -- set_current_challenge \
   --challenge_id 1
