@@ -1,4 +1,4 @@
-.PHONY: test fmt lint dev dev-backend dev-frontend dev-contracts deps deps-backend deps-frontend
+.PHONY: test fmt lint dev dev-backend dev-frontend dev-contracts deps deps-backend deps-frontend proof-host
 
 test:
 	cd contracts/leaderboard && cargo test
@@ -31,7 +31,10 @@ dev: deps dev-contracts
 dev-contracts: deps-backend
 	node scripts/deploy-testnet.mjs
 
-dev-backend: deps-backend
+proof-host:
+	cd risc0/typing_proof && cargo build --release -p typing-proof-host
+
+dev-backend: deps-backend proof-host
 	cd backend && npm run dev
 
 dev-frontend: deps-frontend
