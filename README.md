@@ -32,7 +32,6 @@ This project demonstrates the integration of **RiscZero zkVM** with **Stellar's 
        │
        │ Generates proof which is delivered
        │ to Stellar RPC node via frontend
-       │
        v 
 ┌──────────────┐   ┌─────────────────┐
 │ RiscZero VM  │   │ Soroban Smart   │
